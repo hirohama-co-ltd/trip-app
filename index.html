@@ -39,6 +39,7 @@
     .status-申請中 { background: #dbeafe; color: #1d4ed8; }
     .status-承認済 { background: #d1fae5; color: #065f46; }
     .status-差戻し { background: #fee2e2; color: #991b1b; }
+    .status-取り下げ { background: #f1f5f9; color: #64748b; }
     .status-取消 { background: #f1f5f9; color: #64748b; }
     .settle-未精算 { background: #fef3c7; color: #92400e; }
     .settle-精算中 { background: #dbeafe; color: #1d4ed8; }
@@ -63,6 +64,13 @@
     .route-step-body { flex: 1; min-width: 0; }
     .route-step-role { font-size: 11px; color: #64748b; margin-bottom: 2px; }
     .route-step-name { font-weight: bold; color: #0f766e; word-break: break-word; }
+    .datetime-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+    .datetime-parts { display: flex; align-items: center; gap: 8px; flex: 1; min-width: 0; }
+    .datetime-parts input[type="date"] { flex: 1; min-width: 130px; }
+    .datetime-parts input[type="time"] { width: 110px; flex-shrink: 0; }
+    .datetime-parts.time-hidden input[type="time"] { display: none; }
+    .check-label { display: inline-flex; align-items: center; gap: 4px; font-size: 13px; font-weight: normal; color: #334155; white-space: nowrap; cursor: pointer; }
+    .trip-card-actions { display: flex; gap: 8px; margin-top: 8px; flex-wrap: wrap; }
   </style>
 </head>
 <body>
@@ -70,14 +78,13 @@
 <div id="toast" class="toast"></div>
 
 <div class="header">
+  <button class="btn btn-secondary btn-sm" style="float:right" onclick="goToPortal()">申請ポータルに戻る</button>
   <h1>出張申請</h1>
   <div class="user-info" id="userInfo">-</div>
 </div>
 
 <div class="tabs">
   <button class="tab-btn active" data-tab="form">新規申請</button>
-  <button class="tab-btn" data-tab="list">申請一覧</button>
-  <button class="tab-btn" data-tab="approval" id="tabApproval">承認待ち<span class="badge-count" id="pendingCount" style="display:none">0</span></button>
 </div>
 
 <div id="panel-form" class="panel active">
@@ -94,13 +101,32 @@
     <div id="routePreview" class="route-preview loading">承認者を確認中...</div>
   </div>
   <div class="form-grid">
-    <div class="field"><label>出張開始日</label><input type="date" id="tripStart"></div>
-    <div class="field"><label>出張終了日</label><input type="date" id="tripEnd"></div>
+    <div class="field">
+      <label id="tripStartLabel">出張開始日時</label>
+      <div class="datetime-row">
+        <div class="datetime-parts" id="tripStartParts">
+          <input type="date" id="tripStartDate">
+          <input type="time" id="tripStartTime" value="09:00">
+        </div>
+        <label class="check-label"><input type="checkbox" id="directDepart"> 直行</label>
+      </div>
+    </div>
+    <div class="field">
+      <label id="tripEndLabel">出張終了日時</label>
+      <div class="datetime-row">
+        <div class="datetime-parts" id="tripEndParts">
+          <input type="date" id="tripEndDate">
+          <input type="time" id="tripEndTime" value="18:00">
+        </div>
+        <label class="check-label"><input type="checkbox" id="directReturn"> 直帰</label>
+      </div>
+    </div>
     <div class="field full"><label>出張先</label><input type="text" id="destination" placeholder="例：大阪市"></div>
     <div class="field full"><label>出張目的</label><input type="text" id="purpose" placeholder="例：取引先訪問"></div>
     <div class="field"><label>交通手段</label><input type="text" id="transport" placeholder="例：新幹線・レンタカー"></div>
-    <div class="field"><label>宿泊予定</label><select id="lodgingPlan"><option value="">選択</option><option>日帰り</option><option>1泊</option><option>2泊</option><option>3泊以上</option></select></div>
-    <div class="field"><label>概算費用（円）</label><input type="number" id="estimatedCost" min="0" placeholder="0"></div>
+    <div class="field"><label>宿泊先</label><input type="text" id="lodgingDestination" placeholder="例：ホテルニューオータニ大阪（日帰りの場合は空欄）"></div>
+    <div class="field"><label>宿泊代金（円）</label><input type="number" id="lodgingCost" min="0" placeholder="0"></div>
+    <div class="field"><label>仮払金（円）</label><input type="number" id="advancePayment" min="0" placeholder="0"></div>
     <div class="field full"><label>備考</label><textarea id="note"></textarea></div>
   </div>
   <div class="btn-row">
@@ -111,9 +137,6 @@
   <input type="hidden" id="editTripId" value="">
 </div>
 
-<div id="panel-list" class="panel"><div class="section-title">自分の出張申請</div><div id="myTripList" class="trip-list"></div></div>
-<div id="panel-approval" class="panel"><div class="section-title">承認待ち</div><div id="pendingList" class="trip-list"></div></div>
-
 <div id="detailModal" class="modal-overlay" onclick="if(event.target===this)closeModal()">
   <div class="modal">
     <h3 id="modalTitle">詳細</h3>
@@ -123,27 +146,132 @@
   </div>
 </div>
 
+<div id="completeModal" class="modal-overlay">
+  <div class="modal">
+    <h3>申請が完了しました</h3>
+    <p id="completeMsg" style="font-size:13px;color:#475569">出張申請を提出しました。</p>
+    <div class="btn-row">
+      <button class="btn btn-primary" style="flex:1" onclick="completeNewEntry()">続けて新規申請</button>
+      <button class="btn btn-secondary" style="flex:1" onclick="goToPortal()">申請ポータルに戻る</button>
+    </div>
+  </div>
+</div>
+
 <script>
+  var PORTAL_URL = '<?= portalUrl ?>';
+  var BOOT_REQUEST_ID = '<?= requestId ?>';
   var appData = null, currentTrip = null, lastRoutePreview = null;
 
+  function goToPortal() {
+    if (PORTAL_URL && PORTAL_URL.indexOf('http') === 0) window.top.location.href = PORTAL_URL;
+    else toast('ポータルURLが未設定です（設定.js の PORTAL_URL）', true);
+  }
+
+  function todayDateValue() {
+    return new Date().toISOString().slice(0, 10);
+  }
+
+  function splitDateTimeValue(str, defaultTime) {
+    defaultTime = defaultTime || '09:00';
+    var s = String(str || '').trim();
+    var date = s.substring(0, 10);
+    var time = defaultTime;
+    if (/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}/.test(s)) time = s.substring(11, 16);
+    else if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(s)) time = s.substring(11, 16);
+    return { date: date, time: time };
+  }
+
+  function getTripStartValue() {
+    var date = document.getElementById('tripStartDate').value;
+    if (!date) return '';
+    if (document.getElementById('directDepart').checked) return date;
+    var time = document.getElementById('tripStartTime').value || '09:00';
+    return date + ' ' + time;
+  }
+
+  function getTripEndValue() {
+    var date = document.getElementById('tripEndDate').value;
+    if (!date) return '';
+    if (document.getElementById('directReturn').checked) return date;
+    var time = document.getElementById('tripEndTime').value || '18:00';
+    return date + ' ' + time;
+  }
+
+  function setTripStartFields(str, directDepart) {
+    var parts = splitDateTimeValue(str, '09:00');
+    document.getElementById('tripStartDate').value = parts.date || todayDateValue();
+    document.getElementById('tripStartTime').value = parts.time;
+    document.getElementById('directDepart').checked = !!directDepart;
+    updateDirectDepartUI();
+  }
+
+  function setTripEndFields(str, directReturn) {
+    var parts = splitDateTimeValue(str, '18:00');
+    document.getElementById('tripEndDate').value = parts.date || todayDateValue();
+    document.getElementById('tripEndTime').value = parts.time;
+    document.getElementById('directReturn').checked = !!directReturn;
+    updateDirectReturnUI();
+  }
+
+  function updateDirectDepartUI() {
+    var checked = document.getElementById('directDepart').checked;
+    document.getElementById('tripStartParts').classList.toggle('time-hidden', checked);
+    document.getElementById('tripStartLabel').textContent = checked ? '出張開始日' : '出張開始日時';
+  }
+
+  function updateDirectReturnUI() {
+    var checked = document.getElementById('directReturn').checked;
+    document.getElementById('tripEndParts').classList.toggle('time-hidden', checked);
+    document.getElementById('tripEndLabel').textContent = checked ? '出張終了日' : '出張終了日時';
+  }
+
+  function bindDirectTripFlags() {
+    document.getElementById('directDepart').onchange = updateDirectDepartUI;
+    document.getElementById('directReturn').onchange = updateDirectReturnUI;
+    updateDirectDepartUI();
+    updateDirectReturnUI();
+  }
+
+  function formatTripPeriod(str, hideTime) {
+    if (!str) return '';
+    return hideTime ? String(str).trim().substring(0, 10) : String(str).trim();
+  }
+
   document.addEventListener('DOMContentLoaded', function() {
-    google.script.run.withSuccessHandler(onInit).withFailureHandler(onError).getInitialAppData();
+    google.script.run.withSuccessHandler(onBootstrap).withFailureHandler(onError).getBootstrapAppData();
   });
 
-  function onInit(data) {
+  function onBootstrap(data) {
     appData = data;
     document.getElementById('loading').style.display = 'none';
     document.getElementById('userInfo').textContent = (data.employee ? data.employee.name + ' / ' : '') + (data.userEmail || '');
-    updatePendingBadge(data.pendingApprovals.length);
-    renderMyTrips(data.myTrips);
-    renderPending(data.pendingApprovals);
     bindTabs();
-    var today = new Date().toISOString().slice(0, 10);
-    document.getElementById('tripStart').value = today;
-    document.getElementById('tripEnd').value = today;
+    bindDirectTripFlags();
+    setTripStartFields(todayDateValue(), false);
+    setTripEndFields(todayDateValue(), false);
     setupWorkflowRoutes(data.workflowRoutes, data.workflowLinked);
-    showSubmitReadiness(data.submitReadiness);
-    refreshRoutePreview();
+    if (BOOT_REQUEST_ID) openTrip(BOOT_REQUEST_ID, 'mine');
+    loadSubmitReadinessAsync();
+    setTimeout(function() { refreshRoutePreview(); }, 0);
+  }
+
+  function loadTripListsAsync() {
+    google.script.run.withSuccessHandler(function(data) {
+      if (!appData) appData = {};
+      appData.myTrips = data.myTrips;
+      appData.pendingApprovals = data.pendingApprovals;
+      renderMyTrips(data.myTrips);
+      renderPending(data.pendingApprovals);
+      updatePendingBadge(data.pendingApprovals.length);
+    }).withFailureHandler(onError).getTripListAppData();
+  }
+
+  function loadSubmitReadinessAsync() {
+    if (!appData || !appData.workflowLinked) {
+      showSubmitReadiness({ ok: true });
+      return;
+    }
+    google.script.run.withSuccessHandler(showSubmitReadiness).withFailureHandler(onError).getSubmitReadinessApi();
   }
 
   function showSubmitReadiness(readiness) {
@@ -233,13 +361,16 @@
   function collectPayload() {
     var payload = {
       tripRequestId: document.getElementById('editTripId').value,
-      tripStart: document.getElementById('tripStart').value,
-      tripEnd: document.getElementById('tripEnd').value,
+      tripStart: getTripStartValue(),
+      directDepart: document.getElementById('directDepart').checked,
+      tripEnd: getTripEndValue(),
+      directReturn: document.getElementById('directReturn').checked,
       destination: document.getElementById('destination').value,
       purpose: document.getElementById('purpose').value,
       transport: document.getElementById('transport').value,
-      lodgingPlan: document.getElementById('lodgingPlan').value,
-      estimatedCost: parseInt(document.getElementById('estimatedCost').value, 10) || 0,
+      lodgingDestination: document.getElementById('lodgingDestination').value,
+      lodgingCost: parseInt(document.getElementById('lodgingCost').value, 10) || 0,
+      advancePayment: parseInt(document.getElementById('advancePayment').value, 10) || 0,
       note: document.getElementById('note').value
     };
     var routeEl = document.getElementById('routeId');
@@ -269,8 +400,15 @@
     toast(res.message, false, true);
     document.getElementById('editTripId').value = res.tripRequestId;
     document.getElementById('btnDelete').style.display = res.trip.status === '下書き' ? '' : 'none';
-    refresh();
-    if (res.trip.status === '申請中') resetForm();
+    if (res.trip.status === '申請中') {
+      document.getElementById('completeMsg').textContent = res.message || '出張申請を提出しました。';
+      document.getElementById('completeModal').classList.add('show');
+    }
+  }
+
+  function completeNewEntry() {
+    document.getElementById('completeModal').classList.remove('show');
+    resetForm();
   }
 
   function deleteTrip() {
@@ -282,42 +420,60 @@
       if (!res.success) { toast(res.message, true); return; }
       toast(res.message, false, true);
       resetForm();
-      refresh();
+      refreshLists();
     }).withFailureHandler(onError).deleteTripRequest(id);
   }
 
   function resetForm() {
     document.getElementById('editTripId').value = '';
-    ['destination','purpose','transport','estimatedCost','note'].forEach(function(id) { document.getElementById(id).value = ''; });
-    document.getElementById('lodgingPlan').value = '';
+    ['destination','purpose','transport','lodgingDestination','lodgingCost','advancePayment','note'].forEach(function(id) { document.getElementById(id).value = ''; });
+    document.getElementById('directDepart').checked = false;
+    document.getElementById('directReturn').checked = false;
     document.getElementById('btnDelete').style.display = 'none';
-    var today = new Date().toISOString().slice(0, 10);
-    document.getElementById('tripStart').value = today;
-    document.getElementById('tripEnd').value = today;
+    setTripStartFields(todayDateValue(), false);
+    setTripEndFields(todayDateValue(), false);
     refreshRoutePreview();
   }
 
-  function refresh() {
+  function refreshLists() {
     google.script.run.withSuccessHandler(function(data) {
-      appData = data;
+      if (!appData) appData = {};
+      appData.myTrips = data.myTrips;
+      appData.pendingApprovals = data.pendingApprovals;
       renderMyTrips(data.myTrips);
       renderPending(data.pendingApprovals);
       updatePendingBadge(data.pendingApprovals.length);
-      showSubmitReadiness(data.submitReadiness);
-      refreshRoutePreview();
-    }).getInitialAppData();
+    }).withFailureHandler(onError).getTripListAppData();
+  }
+
+  function refresh() {
+    refreshLists();
+    loadSubmitReadinessAsync();
+    refreshRoutePreview();
+  }
+
+  function isSubmittedStatus(status) {
+    return String(status || '').trim() === '申請中';
   }
 
   function renderMyTrips(trips) {
     var el = document.getElementById('myTripList');
+    if (!el) return;
     if (!trips || !trips.length) { el.innerHTML = '<div class="empty-msg">申請がありません</div>'; return; }
     el.innerHTML = trips.map(tripCard).join('');
     el.querySelectorAll('.trip-card').forEach(function(c) {
       c.onclick = function() { openTrip(c.getAttribute('data-id'), 'mine'); };
     });
+    el.querySelectorAll('.trip-withdraw-btn').forEach(function(btn) {
+      btn.onclick = function(e) {
+        e.stopPropagation();
+        withdrawTripById(btn.getAttribute('data-id'));
+      };
+    });
   }
   function renderPending(trips) {
     var el = document.getElementById('pendingList');
+    if (!el) return;
     if (!trips || !trips.length) { el.innerHTML = '<div class="empty-msg">承認待ちはありません</div>'; return; }
     el.innerHTML = trips.map(tripCard).join('');
     el.querySelectorAll('.trip-card').forEach(function(c) {
@@ -326,12 +482,16 @@
   }
 
   function tripCard(t) {
+    var withdrawBtn = isSubmittedStatus(t.status)
+      ? '<div class="trip-card-actions"><button type="button" class="btn btn-danger btn-sm trip-withdraw-btn" data-id="' + esc(t.tripRequestId) + '">取り下げ</button></div>'
+      : '';
     return '<div class="trip-card" data-id="' + esc(t.tripRequestId) + '">' +
       '<div><strong>' + esc(t.destination) + '</strong> ' +
       '<span class="status-badge status-' + esc(t.status) + '">' + esc(t.status) + '</span> ' +
       '<span class="status-badge settle-' + esc(t.settlementStatus) + '">' + esc(t.settlementStatus) + '</span></div>' +
       '<div style="font-size:12px;color:#64748b;margin-top:4px">' + esc(t.tripRequestId) + ' / ' + esc(t.tripStart) + '〜' + esc(t.tripEnd) +
-      (t.totalSteps > 1 && t.status === '申請中' ? ' / 承認' + t.currentStep + '/' + t.totalSteps : '') + '</div></div>';
+      (t.totalSteps > 1 && isSubmittedStatus(t.status) ? ' / 承認' + t.currentStep + '/' + t.totalSteps : '') + '</div>' +
+      withdrawBtn + '</div>';
   }
 
   function openTrip(id, mode) {
@@ -351,13 +511,14 @@
 
   function loadToForm(t) {
     document.getElementById('editTripId').value = t.tripRequestId;
-    document.getElementById('tripStart').value = t.tripStart;
-    document.getElementById('tripEnd').value = t.tripEnd;
+    setTripStartFields(t.tripStart, t.directDepart);
+    setTripEndFields(t.tripEnd, t.directReturn);
     document.getElementById('destination').value = t.destination;
     document.getElementById('purpose').value = t.purpose;
     document.getElementById('transport').value = t.transport;
-    document.getElementById('lodgingPlan').value = t.lodgingPlan;
-    document.getElementById('estimatedCost').value = t.estimatedCost || '';
+    document.getElementById('lodgingDestination').value = t.lodgingDestination || t.lodgingPlan || '';
+    document.getElementById('lodgingCost').value = t.lodgingCost || '';
+    document.getElementById('advancePayment').value = t.advancePayment || t.estimatedCost || '';
     document.getElementById('note').value = t.note;
     if (t.routeId && document.getElementById('routeId')) document.getElementById('routeId').value = t.routeId;
     document.getElementById('btnDelete').style.display = t.status === '下書き' ? '' : 'none';
@@ -367,11 +528,14 @@
   function showModal(t, mode) {
     document.getElementById('modalTitle').textContent = t.tripRequestId;
     document.getElementById('modalBody').innerHTML =
-      '<p><strong>期間：</strong>' + esc(t.tripStart) + ' 〜 ' + esc(t.tripEnd) + '</p>' +
+      '<p><strong>期間：</strong>' + esc(formatTripPeriod(t.tripStart, t.directDepart)) + (t.directDepart ? '（直行）' : '') +
+      ' 〜 ' + esc(formatTripPeriod(t.tripEnd, t.directReturn)) + (t.directReturn ? '（直帰）' : '') + '</p>' +
       '<p><strong>出張先：</strong>' + esc(t.destination) + '</p>' +
       '<p><strong>目的：</strong>' + esc(t.purpose) + '</p>' +
-      '<p><strong>交通：</strong>' + esc(t.transport) + ' / <strong>宿泊：</strong>' + esc(t.lodgingPlan) + '</p>' +
-      '<p><strong>概算：</strong>' + (t.estimatedCost || 0).toLocaleString() + ' 円</p>' +
+      '<p><strong>交通：</strong>' + esc(t.transport) + '</p>' +
+      '<p><strong>宿泊先：</strong>' + esc(t.lodgingDestination || t.lodgingPlan || '-') +
+      (t.lodgingCost ? ' / <strong>宿泊代金：</strong>' + t.lodgingCost.toLocaleString() + ' 円' : '') + '</p>' +
+      '<p><strong>仮払金：</strong>' + (t.advancePayment || t.estimatedCost || 0).toLocaleString() + ' 円</p>' +
       (t.totalSteps > 1 ? '<p><strong>承認進捗：</strong>' + esc(t.currentStepName || '') +
         (t.currentApprovalRole ? '（' + esc(t.currentApprovalRole) + '）' : '') +
         ' ' + t.currentStep + '/' + t.totalSteps + '</p>' : '') +
@@ -398,13 +562,15 @@
     }
     var actions = document.getElementById('modalActions');
     actions.innerHTML = '';
-    if (mode === 'approval' && t.status === '申請中') {
+    if (mode === 'approval' && isSubmittedStatus(t.status)) {
       actions.innerHTML = '<button class="btn btn-success" style="flex:1" onclick="doApprove()">承認</button>' +
         '<button class="btn btn-danger" style="flex:1" onclick="doReject()">差戻し</button>';
-    }
-    if (mode === 'mine' && t.status === '承認済' && t.settlementStatus === '未精算') {
+    } else if (mode === 'mine' && isSubmittedStatus(t.status)) {
+      actions.innerHTML = '<button class="btn btn-danger" style="flex:1" onclick="doWithdraw()">取り下げ</button>';
+    } else if (mode === 'mine' && String(t.status || '').trim() === '承認済' && t.settlementStatus === '未精算') {
       actions.innerHTML = '<button class="btn btn-danger" style="flex:1" onclick="doCancel()">取消</button>';
     }
+    actions.style.display = actions.innerHTML ? 'flex' : 'none';
     document.getElementById('detailModal').classList.add('show');
   }
 
@@ -412,7 +578,7 @@
   function doApprove() {
     if (!currentTrip || ! confirm('承認しますか？')) return;
     showLoading(true);
-    google.script.run.withSuccessHandler(function(res) { showLoading(false); closeModal(); toast(res.message, !res.success, res.success); refresh(); })
+    google.script.run.withSuccessHandler(function(res) { showLoading(false); closeModal(); toast(res.message, !res.success, res.success); refreshLists(); })
       .withFailureHandler(onError).approveTripRequest(currentTrip.tripRequestId, '');
   }
   function doReject() {
@@ -425,14 +591,28 @@
       if (!targetChoice) return;
     }
     showLoading(true);
-    google.script.run.withSuccessHandler(function(res) { showLoading(false); closeModal(); toast(res.message, !res.success, res.success); refresh(); })
+    google.script.run.withSuccessHandler(function(res) { showLoading(false); closeModal(); toast(res.message, !res.success, res.success); refreshLists(); })
       .withFailureHandler(onError).rejectTripRequest(currentTrip.tripRequestId, reason, targetChoice);
   }
   function doCancel() {
     if (!currentTrip || ! confirm('取消しますか？')) return;
     showLoading(true);
-    google.script.run.withSuccessHandler(function(res) { showLoading(false); closeModal(); toast(res.message, !res.success, res.success); refresh(); })
+    google.script.run.withSuccessHandler(function(res) { showLoading(false); closeModal(); toast(res.message, !res.success, res.success); refreshLists(); })
       .withFailureHandler(onError).cancelTripRequest(currentTrip.tripRequestId);
+  }
+  function doWithdraw() {
+    if (!currentTrip) return;
+    withdrawTripById(currentTrip.tripRequestId, true);
+  }
+  function withdrawTripById(tripRequestId, fromModal) {
+    if (!tripRequestId || !confirm('申請を取り下げますか？\n承認待ちの申請は撤回されます。')) return;
+    showLoading(true);
+    google.script.run.withSuccessHandler(function(res) {
+      showLoading(false);
+      if (fromModal) closeModal();
+      toast(res.message, !res.success, res.success);
+      if (res.success) refreshLists();
+    }).withFailureHandler(onError).withdrawTripRequest(tripRequestId);
   }
 
   function switchTab(name) {
@@ -441,6 +621,7 @@
   }
   function updatePendingBadge(n) {
     var el = document.getElementById('pendingCount');
+    if (!el) return;
     el.style.display = n > 0 ? '' : 'none';
     el.textContent = n;
   }

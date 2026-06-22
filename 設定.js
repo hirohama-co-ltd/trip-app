@@ -11,12 +11,16 @@ var WORKFLOW_SS_ID = '19zhtLt23UOpysCpbwH9X-gom5ohVKbW2nARECDvCfIk';
 /** このアプリのワークフロー識別コード */
 var APP_CODE = 'TRIP_REQUEST';
 
+/** 申請ポータルのWebアプリURL（戻る導線用・デプロイ後の /exec URL を設定） */
+var PORTAL_URL = 'https://script.google.com/macros/s/AKfycbwLx0zRZApqzd9d3Np8HhMQJzOzp1L_TSvL4xiL_Svrwiguyuk1oLQAcAlSX8F3OGc8/exec';
+
 /** 出張申請ステータス */
 var TRIP_STATUS = {
   DRAFT: '下書き',
   SUBMITTED: '申請中',
   APPROVED: '承認済',
   REJECTED: '差戻し',
+  WITHDRAWN: '取り下げ',
   CANCELLED: '取消'
 };
 
@@ -46,6 +50,22 @@ function normalizeDate(dateInput) {
   return Utilities.formatDate(new Date(), tz, 'yyyy-MM-dd');
 }
 
+function normalizeDateTime(dateInput) {
+  var tz = Session.getScriptTimeZone();
+  if (!dateInput) return Utilities.formatDate(new Date(), tz, 'yyyy-MM-dd HH:mm');
+  if (dateInput instanceof Date && !isNaN(dateInput.getTime())) {
+    return Utilities.formatDate(dateInput, tz, 'yyyy-MM-dd HH:mm');
+  }
+  var s = String(dateInput).trim();
+  if (/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}/.test(s)) return s.substring(0, 16);
+  if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(s)) return s.replace('T', ' ').substring(0, 16);
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s + ' 09:00';
+  if (/^\d{4}\/\d{2}\/\d{2}$/.test(s)) return s.replace(/\//g, '-') + ' 09:00';
+  var d = new Date(s);
+  if (!isNaN(d.getTime())) return Utilities.formatDate(d, tz, 'yyyy-MM-dd HH:mm');
+  return Utilities.formatDate(new Date(), tz, 'yyyy-MM-dd HH:mm');
+}
+
 function formatDateTime(val) {
   if (!val) return '';
   var tz = Session.getScriptTimeZone();
@@ -60,6 +80,10 @@ function normalizeAmount(val) {
   return isNaN(n) ? 0 : Math.max(0, n);
 }
 
+function normalizeFlag(val) {
+  return val === true || val === 'TRUE' || val === 'はい' || val === '1' || val === 1;
+}
+
 function generateTripRequestId_() {
   var tz = Session.getScriptTimeZone();
   var prefix = Utilities.formatDate(new Date(), tz, 'yyyyMMdd');
@@ -69,7 +93,8 @@ function generateTripRequestId_() {
 
 function getCurrentUserEmail_() {
   try {
-    return Session.getActiveUser().getEmail() || Session.getEffectiveUser().getEmail() || '';
+    var email = Session.getActiveUser().getEmail() || Session.getEffectiveUser().getEmail() || '';
+    return String(email).trim().toLowerCase();
   } catch (e) {
     return '';
   }

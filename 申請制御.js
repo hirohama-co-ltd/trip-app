@@ -4,10 +4,18 @@
 
 function validateTripPayload_(payload, isSubmit) {
   var errors = [];
-  if (!payload.tripStart) errors.push('出張開始日を入力してください');
-  if (!payload.tripEnd) errors.push('出張終了日を入力してください');
-  if (payload.tripStart && payload.tripEnd && normalizeDate(payload.tripEnd) < normalizeDate(payload.tripStart)) {
-    errors.push('出張終了日は開始日以降にしてください');
+  if (!payload.tripStart) errors.push('出張開始日時を入力してください');
+  if (!payload.tripEnd) errors.push('出張終了日時を入力してください');
+  if (payload.tripStart && payload.tripEnd) {
+    var startVal = normalizeFlag(payload.directDepart)
+      ? normalizeDate(payload.tripStart) + ' 00:00'
+      : normalizeDateTime(payload.tripStart);
+    var endVal = normalizeFlag(payload.directReturn)
+      ? normalizeDate(payload.tripEnd) + ' 23:59'
+      : normalizeDateTime(payload.tripEnd);
+    if (endVal < startVal) {
+      errors.push('出張終了日時は開始日時以降にしてください');
+    }
   }
   if (!String(payload.destination || '').trim()) errors.push('出張先を入力してください');
   if (!String(payload.purpose || '').trim()) errors.push('出張目的を入力してください');
@@ -63,13 +71,20 @@ function saveTripRequest(payload, submit) {
     requestDate: existing ? existing.requestDate : normalizeDate(new Date()),
     applicantEmail: userEmail,
     applicantName: employee ? employee.name : (payload.applicantName || userEmail.split('@')[0]),
-    tripStart: normalizeDate(payload.tripStart),
-    tripEnd: normalizeDate(payload.tripEnd),
+    tripStart: normalizeFlag(payload.directDepart)
+      ? normalizeDate(payload.tripStart)
+      : normalizeDateTime(payload.tripStart),
+    directDepart: normalizeFlag(payload.directDepart),
+    tripEnd: normalizeFlag(payload.directReturn)
+      ? normalizeDate(payload.tripEnd)
+      : normalizeDateTime(payload.tripEnd),
+    directReturn: normalizeFlag(payload.directReturn),
     destination: String(payload.destination || '').trim(),
     purpose: String(payload.purpose || '').trim(),
     transport: String(payload.transport || '').trim(),
-    lodgingPlan: String(payload.lodgingPlan || '').trim(),
-    estimatedCost: normalizeAmount(payload.estimatedCost),
+    lodgingDestination: String(payload.lodgingDestination || '').trim(),
+    lodgingCost: normalizeAmount(payload.lodgingCost),
+    advancePayment: normalizeAmount(payload.advancePayment),
     note: String(payload.note || ''),
     status: isSubmit ? TRIP_STATUS.SUBMITTED : TRIP_STATUS.DRAFT,
     settlementStatus: existing ? existing.settlementStatus : SETTLEMENT_STATUS.NONE,
@@ -123,6 +138,28 @@ function cancelTripRequest(tripRequestId) {
   writeTripRow_(trip);
   appendHistory_(tripRequestId, '取消', '');
   return { success: true, message: '出張申請を取り消しました。' };
+}
+
+function withdrawTripRequest(tripRequestId) {
+  var userEmail = getCurrentUserEmail_();
+  var trip = buildTripRequest_(tripRequestId);
+  if (!trip) return { success: false, message: '申請が見つかりません。' };
+  if (trip.applicantEmail !== userEmail) return { success: false, message: '取り下げ権限がありません。' };
+  if (String(trip.status || '').trim() !== TRIP_STATUS.SUBMITTED) {
+    return { success: false, message: '申請中の申請のみ取り下げできます。（現在: ' + trip.status + '）' };
+  }
+
+  trip.status = TRIP_STATUS.WITHDRAWN;
+  trip.approverEmail = '';
+  trip.approvedAt = '';
+  trip.rejectReason = '';
+  trip.currentStep = 0;
+  trip.totalSteps = 0;
+  trip.currentStepName = '';
+  trip.updatedAt = formatDateTime(new Date());
+  writeTripRow_(trip);
+  appendHistory_(tripRequestId, '取り下げ', '');
+  return { success: true, message: '申請を取り下げました。' };
 }
 
 function listMyTripRequests() {

@@ -3,11 +3,16 @@
 // ========================================
 
 var TRIP_HEADERS = [
-  '出張申請ID', '申請日', '申請者Email', '申請者名', '出張開始日', '出張終了日',
-  '出張先', '目的', '交通手段', '宿泊予定', '概算費用', '備考',
+  '出張申請ID', '申請日', '申請者Email', '申請者名', '出張開始日', '直行', '出張終了日', '直帰',
+  '出張先', '目的', '交通手段', '宿泊先', '宿泊代金', '仮払金', '備考',
   'ステータス', '精算状況', '精算ID', '承認者Email', '承認日時', '差戻し理由', '更新日時',
   '経路ID', '現在ステップ', '総ステップ数', '現在ステップ名'
 ];
+
+var TRIP_HEADER_ALIASES = {
+  '宿泊先': ['宿泊予定'],
+  '仮払金': ['概算費用']
+};
 
 var HISTORY_HEADERS = ['出張申請ID', '操作日時', '操作者Email', '操作', 'コメント'];
 
@@ -15,52 +20,89 @@ function getSpreadsheet_() {
   return SpreadsheetApp.getActiveSpreadsheet();
 }
 
+function getTripColumnMap_(sheet) {
+  var lastCol = Math.max(sheet.getLastColumn(), TRIP_HEADERS.length);
+  var headerRow = sheet.getRange(1, 1, 1, lastCol).getValues()[0];
+  var headers = headerRow.map(function(h) { return String(h || '').trim(); });
+  var map = {};
+  TRIP_HEADERS.forEach(function(name) {
+    var idx = headers.indexOf(name);
+    if (idx >= 0) map[name] = idx;
+  });
+  Object.keys(TRIP_HEADER_ALIASES).forEach(function(name) {
+    if (map.hasOwnProperty(name)) return;
+    var aliases = TRIP_HEADER_ALIASES[name];
+    for (var i = 0; i < aliases.length; i++) {
+      var aliasIdx = headers.indexOf(aliases[i]);
+      if (aliasIdx >= 0) { map[name] = aliasIdx; break; }
+    }
+  });
+  return map;
+}
+
+function tripCell_(data, colMap, name, defaultValue) {
+  if (!colMap.hasOwnProperty(name)) return defaultValue;
+  return data[colMap[name]];
+}
+
 function readTripRows_(filterFn) {
   var sheet = getSpreadsheet_().getSheetByName(SHEET_TRIPS);
   if (!sheet || sheet.getLastRow() < 2) return [];
-  var data = sheet.getRange(2, 1, sheet.getLastRow(), TRIP_HEADERS.length).getValues();
+  var colMap = getTripColumnMap_(sheet);
+  var lastCol = Math.max(sheet.getLastColumn(), TRIP_HEADERS.length);
+  var data = sheet.getRange(2, 1, sheet.getLastRow(), lastCol).getValues();
   var rows = [];
   for (var i = 0; i < data.length; i++) {
-    if (!data[i][0]) continue;
-    var row = mapTripRow_(data[i]);
+    var id = String(tripCell_(data[i], colMap, '出張申請ID', '')).trim();
+    if (!id) continue;
+    var row = mapTripRow_(data[i], colMap);
     if (!filterFn || filterFn(row)) rows.push(row);
   }
   return rows;
 }
 
-function mapTripRow_(data) {
+function mapTripRow_(data, colMap) {
+  colMap = colMap || {};
+  var directDepart = normalizeFlag(tripCell_(data, colMap, '直行', false));
+  var directReturn = normalizeFlag(tripCell_(data, colMap, '直帰', false));
+  var tripStartRaw = tripCell_(data, colMap, '出張開始日', '');
+  var tripEndRaw = tripCell_(data, colMap, '出張終了日', '');
   return {
-    tripRequestId: String(data[0]),
-    requestDate: normalizeDate(data[1]),
-    applicantEmail: String(data[2] || '').trim().toLowerCase(),
-    applicantName: String(data[3] || ''),
-    tripStart: normalizeDate(data[4]),
-    tripEnd: normalizeDate(data[5]),
-    destination: String(data[6] || ''),
-    purpose: String(data[7] || ''),
-    transport: String(data[8] || ''),
-    lodgingPlan: String(data[9] || ''),
-    estimatedCost: normalizeAmount(data[10]),
-    note: String(data[11] || ''),
-    status: String(data[12] || TRIP_STATUS.DRAFT),
-    settlementStatus: String(data[13] || SETTLEMENT_STATUS.NONE),
-    expenseClaimId: String(data[14] || ''),
-    approverEmail: String(data[15] || '').trim().toLowerCase(),
-    approvedAt: formatDateTime(data[16]),
-    rejectReason: String(data[17] || ''),
-    updatedAt: formatDateTime(data[18]),
-    routeId: String(data[19] || '').trim(),
-    currentStep: parseInt(data[20], 10) || 0,
-    totalSteps: parseInt(data[21], 10) || 0,
-    currentStepName: String(data[22] || '').trim()
+    tripRequestId: String(tripCell_(data, colMap, '出張申請ID', '')).trim(),
+    requestDate: normalizeDate(tripCell_(data, colMap, '申請日', '')),
+    applicantEmail: String(tripCell_(data, colMap, '申請者Email', '')).trim().toLowerCase(),
+    applicantName: String(tripCell_(data, colMap, '申請者名', '')),
+    tripStart: directDepart ? normalizeDate(tripStartRaw) : normalizeDateTime(tripStartRaw),
+    directDepart: directDepart,
+    tripEnd: directReturn ? normalizeDate(tripEndRaw) : normalizeDateTime(tripEndRaw),
+    directReturn: directReturn,
+    destination: String(tripCell_(data, colMap, '出張先', '')),
+    purpose: String(tripCell_(data, colMap, '目的', '')),
+    transport: String(tripCell_(data, colMap, '交通手段', '')),
+    lodgingDestination: String(tripCell_(data, colMap, '宿泊先', '')),
+    lodgingCost: normalizeAmount(tripCell_(data, colMap, '宿泊代金', 0)),
+    advancePayment: normalizeAmount(tripCell_(data, colMap, '仮払金', 0)),
+    note: String(tripCell_(data, colMap, '備考', '')),
+    status: String(tripCell_(data, colMap, 'ステータス', TRIP_STATUS.DRAFT)).trim() || TRIP_STATUS.DRAFT,
+    settlementStatus: String(tripCell_(data, colMap, '精算状況', SETTLEMENT_STATUS.NONE)).trim() || SETTLEMENT_STATUS.NONE,
+    expenseClaimId: String(tripCell_(data, colMap, '精算ID', '')),
+    approverEmail: String(tripCell_(data, colMap, '承認者Email', '')).trim().toLowerCase(),
+    approvedAt: formatDateTime(tripCell_(data, colMap, '承認日時', '')),
+    rejectReason: String(tripCell_(data, colMap, '差戻し理由', '')),
+    updatedAt: formatDateTime(tripCell_(data, colMap, '更新日時', '')),
+    routeId: String(tripCell_(data, colMap, '経路ID', '')).trim(),
+    currentStep: parseInt(tripCell_(data, colMap, '現在ステップ', 0), 10) || 0,
+    totalSteps: parseInt(tripCell_(data, colMap, '総ステップ数', 0), 10) || 0,
+    currentStepName: String(tripCell_(data, colMap, '現在ステップ名', '')).trim()
   };
 }
 
 function tripRowToValues_(r) {
   return [
     r.tripRequestId, r.requestDate, r.applicantEmail, r.applicantName,
-    r.tripStart, r.tripEnd, r.destination, r.purpose, r.transport, r.lodgingPlan,
-    r.estimatedCost, r.note, r.status, r.settlementStatus, r.expenseClaimId,
+    r.tripStart, r.directDepart, r.tripEnd, r.directReturn,
+    r.destination, r.purpose, r.transport, r.lodgingDestination,
+    r.lodgingCost, r.advancePayment, r.note, r.status, r.settlementStatus, r.expenseClaimId,
     r.approverEmail, r.approvedAt, r.rejectReason, r.updatedAt,
     r.routeId || '', r.currentStep || 0, r.totalSteps || 0, r.currentStepName || ''
   ];
