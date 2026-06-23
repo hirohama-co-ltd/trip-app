@@ -113,17 +113,28 @@ function tripRowToValues_(r) {
   ];
 }
 
+function findSheetRowByFirstColumnId_(sheet, id) {
+  var lastRow = sheet.getLastRow();
+  if (lastRow < 2) return -1;
+  var ids = sheet.getRange(2, 1, lastRow - 1, 1).getValues();
+  var target = String(id || '').trim();
+  for (var i = 0; i < ids.length; i++) {
+    if (String(ids[i][0] || '').trim() === target) return i + 2;
+  }
+  return -1;
+}
+
 function writeTripRow_(trip) {
   var sheet = getSpreadsheet_().getSheetByName(SHEET_TRIPS) || getSpreadsheet_().insertSheet(SHEET_TRIPS);
   ensureHeaders_(sheet, TRIP_HEADERS);
-  var all = readTripRows_();
-  var idx = -1;
-  for (var i = 0; i < all.length; i++) {
-    if (all[i].tripRequestId === trip.tripRequestId) { idx = i; break; }
+  var values = tripRowToValues_(trip);
+  var rowIndex = findSheetRowByFirstColumnId_(sheet, trip.tripRequestId);
+  if (rowIndex > 0) {
+    sheet.getRange(rowIndex, 1, 1, TRIP_HEADERS.length).setValues([values]);
+    return;
   }
-  if (idx >= 0) all[idx] = trip;
-  else all.push(trip);
-  writeAllTripRows_(sheet, all);
+  var nextRow = Math.max(sheet.getLastRow(), 1) + 1;
+  sheet.getRange(nextRow, 1, 1, TRIP_HEADERS.length).setValues([values]);
 }
 
 function writeAllTripRows_(sheet, rows) {
